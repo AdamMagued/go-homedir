@@ -158,10 +158,48 @@ func dirWindows() (string, error) {
 
 	drive := os.Getenv("HOMEDRIVE")
 	path := os.Getenv("HOMEPATH")
-	home := drive + path
-	if drive == "" || path == "" {
-		return "", errors.New("HOMEDRIVE, HOMEPATH, or USERPROFILE are blank")
+	if drive != "" && path != "" {
+		return joinWindowsPath(drive, path), nil
 	}
 
-	return home, nil
+	if share := os.Getenv("HOMESHARE"); share != "" {
+		return joinWindowsPath(share, path), nil
+	}
+
+	if sysDrive := os.Getenv("SYSTEMDRIVE"); sysDrive != "" && path != "" {
+		return joinWindowsPath(sysDrive, path), nil
+	}
+
+	if isWindowsAbs(path) {
+		return path, nil
+	}
+
+	return "", errors.New("HOMEDRIVE, HOMEPATH, or USERPROFILE are blank")
+}
+
+func joinWindowsPath(base, sub string) string {
+	base = strings.ReplaceAll(base, "/", `\`)
+	sub = strings.ReplaceAll(sub, "/", `\`)
+	if sub == "" {
+		return base
+	}
+	base = strings.TrimRight(base, `\`)
+	sub = strings.TrimLeft(sub, `\`)
+	if sub == "" {
+		if strings.HasSuffix(base, ":") {
+			return base + `\`
+		}
+		return base
+	}
+	return base + `\` + sub
+}
+
+func isWindowsAbs(path string) bool {
+	if strings.HasPrefix(path, `\\`) || strings.HasPrefix(path, "//") {
+		return true
+	}
+	if len(path) >= 3 && path[1] == ':' && (path[2] == '\\' || path[2] == '/') {
+		return true
+	}
+	return false
 }
