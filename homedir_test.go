@@ -8,9 +8,13 @@ import (
 )
 
 func patchEnv(key, value string) func() {
-	bck := os.Getenv(key)
+	bck, exists := os.LookupEnv(key)
 	deferFunc := func() {
-		os.Setenv(key, bck)
+		if exists {
+			os.Setenv(key, bck)
+		} else {
+			os.Unsetenv(key)
+		}
 	}
 
 	if value != "" {
@@ -118,6 +122,7 @@ func TestExpand(t *testing.T) {
 	DisableCache = true
 	defer func() { DisableCache = false }()
 	defer patchEnv("HOME", "/custom/path/")()
+	defer patchEnv("USERPROFILE", "/custom/path/")()
 	expected := filepath.Join("/", "custom", "path", "foo/bar")
 	actual, err := Expand("~/foo/bar")
 
@@ -127,3 +132,93 @@ func TestExpand(t *testing.T) {
 		t.Errorf("Expected: %v; actual: %v", expected, actual)
 	}
 }
+
+func TestDirWindows(t *testing.T) {
+	t.Run("USERPROFILE prioritized over HOME and HOMEDRIVE/HOMEPATH", func(t *testing.T) {
+		defer patchEnv("USERPROFILE", `C:\Users\profile`)()
+		defer patchEnv("HOME", `C:\Users\home`)()
+		defer patchEnv("HOMEDRIVE", `D:`)()
+		defer patchEnv("HOMEPATH", `\Users\other`)()
+
+		dir, err := dirWindows()
+		if err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+		if expected := `C:\Users\profile`; dir != expected {
+			t.Fatalf("expected %q, got %q", expected, dir)
+		}
+	})
+
+	t.Run("HOMEDRIVE and HOMEPATH prioritized over HOME", func(t *testing.T) {
+		defer patchEnv("USERPROFILE", "")()
+		defer patchEnv("HOMEDRIVE", `C:`)()
+		defer patchEnv("HOMEPATH", `\Users\drivepath`)()
+		defer patchEnv("HOME", `C:\Users\home`)()
+
+		dir, err := dirWindows()
+		if err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+		if expected := `C:\Users\drivepath`; dir != expected {
+			t.Fatalf("expected %q, got %q", expected, dir)
+		}
+	})
+
+	t.Run("HOME fallback when system locations blank", func(t *testing.T) {
+		defer patchEnv("USERPROFILE", "")()
+		defer patchEnv("HOMEDRIVE", "")()
+		defer patchEnv("HOMEPATH", "")()
+		defer patchEnv("HOME", `C:\Users\home`)()
+
+		dir, err := dirWindows()
+		if err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+		if expected := `C:\Users\home`; dir != expected {
+			t.Fatalf("expected %q, got %q", expected, dir)
+		}
+	})
+
+	t.Run("incomplete HOMEDRIVE falls back to HOME", func(t *testing.T) {
+		defer patchEnv("USERPROFILE", "")()
+		defer patchEnv("HOMEDRIVE", `C:`)()
+		defer patchEnv("HOMEPATH", "")()
+		defer patchEnv("HOME", `C:\Users\home`)()
+
+		dir, err := dirWindows()
+		if err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+		if expected := `C:\Users\home`; dir != expected {
+			t.Fatalf("expected %q, got %q", expected, dir)
+		}
+	})
+
+	t.Run("incomplete HOMEPATH falls back to HOME", func(t *testing.T) {
+		defer patchEnv("USERPROFILE", "")()
+		defer patchEnv("HOMEDRIVE", "")()
+		defer patchEnv("HOMEPATH", `\Users\pathonly`)()
+		defer patchEnv("HOME", `C:\Users\home`)()
+
+		dir, err := dirWindows()
+		if err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+		if expected := `C:\Users\home`; dir != expected {
+			t.Fatalf("expected %q, got %q", expected, dir)
+		}
+	})
+
+	t.Run("error when all blank", func(t *testing.T) {
+		defer patchEnv("USERPROFILE", "")()
+		defer patchEnv("HOMEDRIVE", "")()
+		defer patchEnv("HOMEPATH", "")()
+		defer patchEnv("HOME", "")()
+
+		dir, err := dirWindows()
+		if err == nil {
+			t.Fatalf("expected error, got dir: %q", dir)
+		}
+	})
+}
+
