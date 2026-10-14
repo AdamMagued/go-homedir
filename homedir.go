@@ -115,7 +115,8 @@ func dirUnix() (string, error) {
 		cmd.Stdout = &stdout
 		if err := cmd.Run(); err != nil {
 			// If the error is ErrNotFound, we ignore it. Otherwise, return it.
-			if err != exec.ErrNotFound {
+			var execErr *exec.Error
+			if !errors.Is(err, exec.ErrNotFound) && !(errors.As(err, &execErr) && execErr.Err == exec.ErrNotFound) {
 				return "", err
 			}
 		} else {
